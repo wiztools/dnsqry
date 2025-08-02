@@ -1,4 +1,5 @@
 use clap::{Arg, Command};
+use colored::Colorize;
 use std::str::FromStr;
 use std::time::Duration;
 use trust_dns_resolver::config::*;
@@ -60,22 +61,46 @@ fn main() {
 
         match record.data() {
             Some(RData::A(addr)) => {
-                println!("{} {} {}   {}", record_type_name, name, ttl, addr);
+                println!(
+                    "{} {} {}   {}",
+                    record_type_name.green(),
+                    name.blue(),
+                    ttl,
+                    addr
+                );
             }
             Some(RData::AAAA(addr)) => {
-                println!("{} {} {}   {}", record_type_name, name, ttl, addr);
+                println!(
+                    "{} {} {}   {}",
+                    record_type_name.green(),
+                    name.blue(),
+                    ttl,
+                    addr
+                );
             }
             Some(RData::NS(ns)) => {
-                println!("{} {} {}   \"{}\"", record_type_name, name, ttl, ns);
+                println!(
+                    "{} {} {}   \"{}\"",
+                    record_type_name.red(),
+                    name.blue(),
+                    ttl,
+                    ns
+                );
             }
             Some(RData::CNAME(cname)) => {
-                println!("{} {} {}   \"{}\"", record_type_name, name, ttl, cname);
+                println!(
+                    "{} {} {}   \"{}\"",
+                    record_type_name.green(),
+                    name.blue(),
+                    ttl,
+                    cname
+                );
             }
             Some(RData::MX(mx)) => {
                 println!(
                     "{} {} {}   {} \"{}\"",
-                    record_type_name,
-                    name,
+                    record_type_name.green(),
+                    name.blue(),
                     ttl,
                     mx.preference(),
                     mx.exchange()
@@ -87,13 +112,19 @@ fn main() {
                     .map(|bytes| String::from_utf8_lossy(bytes))
                     .collect::<Vec<_>>()
                     .join("");
-                println!("{} {} {}   \"{}\"", record_type_name, name, ttl, txt_data);
+                println!(
+                    "{} {} {}   \"{}\"",
+                    record_type_name.green(),
+                    name.blue(),
+                    ttl,
+                    txt_data
+                );
             }
             Some(RData::SOA(soa)) => {
                 println!(
                     "{} {} {}   \"{}\" \"{}\" {} {} {} {} {}",
-                    record_type_name,
-                    name,
+                    record_type_name.purple(),
+                    name.blue(),
                     ttl,
                     soa.mname(),
                     soa.rname(),
@@ -105,13 +136,30 @@ fn main() {
                 );
             }
             Some(RData::PTR(ptr)) => {
-                println!("{} {} {}   \"{}\"", record_type_name, name, ttl, ptr);
+                println!(
+                    "{} {} {}   \"{}\"",
+                    record_type_name.green(),
+                    name.blue(),
+                    ttl,
+                    ptr
+                );
             }
             Some(other) => {
-                println!("{} {} {}   {:?}", record_type_name, name, ttl, other);
+                println!(
+                    "{} {} {}   {:?}",
+                    record_type_name.red(),
+                    name.blue(),
+                    ttl,
+                    other
+                );
             }
             None => {
-                println!("{} {} {}   (no data)", record_type_name, name, ttl);
+                println!(
+                    "{} {} {}   (no data)",
+                    record_type_name.green(),
+                    name.blue(),
+                    ttl
+                );
             }
         }
     }

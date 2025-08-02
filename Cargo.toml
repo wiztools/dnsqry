@@ -1,0 +1,13 @@
+[package]
+name = "dnsqry"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "dnsqry"
+path = "src/main.rs"
+
+[dependencies]
+clap = "4.4"
+trust-dns-resolver = "0.23"
+tokio = { version = "1.0", features = ["full"] }

@@ -117,11 +117,6 @@ The tool provides clear error messages for common issues:
 - Network connectivity problems
 - Malformed domain names
 
-## Dependencies
-
-- [clap](https://crates.io/crates/clap) - Command line argument parsing
-- [trust-dns-resolver](https://crates.io/crates/trust-dns-resolver) - DNS resolution library
-
 ## License
 
 MIT

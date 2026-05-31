@@ -1,66 +1,58 @@
-use clap::{Arg, Command};
+use clap::{Parser, ValueEnum};
 use colored::Colorize;
+use hickory_resolver::Resolver;
+use hickory_resolver::config::{CLOUDFLARE, GOOGLE, QUAD9, ResolverConfig};
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
+use hickory_resolver::proto::rr::{RData, RecordType};
+use std::error::Error;
 use std::str::FromStr;
 use std::time::Duration;
-use trust_dns_resolver::config::*;
-use trust_dns_resolver::proto::rr::{RData, RecordType};
-use trust_dns_resolver::Resolver;
 
-fn main() {
-    let matches = Command::new("dnsqry")
-        .version("1.0")
-        .about("DNS query tool")
-        .arg(
-            Arg::new("domain")
-                .help("The domain to query")
-                .required(true)
-                .index(1),
-        )
-        .arg(
-            Arg::new("record_type")
-                .help("The DNS record type (A, AAAA, NS, MX, TXT, CNAME, etc.)")
-                .required(true)
-                .index(2),
-        )
-        .get_matches();
+#[derive(Parser)]
+#[command(version, about = "DNS query tool")]
+struct Cli {
+    /// DNS resolver to use
+    #[arg(long, value_enum, default_value_t = ResolverChoice::System)]
+    resolver: ResolverChoice,
 
-    let domain = matches.get_one::<String>("domain").unwrap();
-    let record_type_str = matches.get_one::<String>("record_type").unwrap();
+    /// The domain to query
+    domain: String,
 
-    let record_type = match RecordType::from_str(record_type_str) {
-        Ok(rt) => rt,
-        Err(_) => {
-            eprintln!("Error: Invalid record type '{}'", record_type_str);
-            std::process::exit(1);
-        }
-    };
+    /// The DNS record type (A, AAAA, NS, MX, TXT, CNAME, etc.)
+    #[arg(value_parser = parse_record_type)]
+    record_type: RecordType,
+}
 
-    // Create resolver with default configuration
-    let resolver = match Resolver::new(ResolverConfig::default(), ResolverOpts::default()) {
-        Ok(resolver) => resolver,
-        Err(e) => {
-            eprintln!("Error creating resolver: {}", e);
-            std::process::exit(1);
-        }
-    };
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum ResolverChoice {
+    /// Use the operating system DNS configuration
+    System,
 
-    // Perform the DNS lookup
-    let response = match resolver.lookup(domain, record_type) {
-        Ok(response) => response,
-        Err(e) => {
-            eprintln!("Error querying DNS: {}", e);
-            std::process::exit(1);
-        }
-    };
+    /// Use Google Public DNS over HTTPS
+    Google,
 
-    // Format and print results
-    for record in response.records() {
-        let ttl = format_ttl(record.ttl());
+    /// Use Cloudflare 1.1.1.1 DNS over HTTPS
+    Cloudflare,
+
+    /// Use Quad9 DNS over HTTPS
+    Quad9,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let cli = Cli::parse();
+
+    let resolver = build_resolver(cli.resolver)?;
+
+    let response = resolver.lookup(cli.domain, cli.record_type).await?;
+
+    for record in response.answers() {
+        let ttl = format_ttl(record.ttl);
         let record_type_name = format!("{:?}", record.record_type());
-        let name = record.name().to_string();
+        let name = record.name.to_string();
 
-        match record.data() {
-            Some(RData::A(addr)) => {
+        match &record.data {
+            RData::A(addr) => {
                 println!(
                     "{} {} {}   {}",
                     record_type_name.green(),
@@ -69,7 +61,7 @@ fn main() {
                     addr
                 );
             }
-            Some(RData::AAAA(addr)) => {
+            RData::AAAA(addr) => {
                 println!(
                     "{} {} {}   {}",
                     record_type_name.green(),
@@ -78,7 +70,7 @@ fn main() {
                     addr
                 );
             }
-            Some(RData::NS(ns)) => {
+            RData::NS(ns) => {
                 println!(
                     "{} {} {}   \"{}\"",
                     record_type_name.red(),
@@ -87,7 +79,7 @@ fn main() {
                     ns
                 );
             }
-            Some(RData::CNAME(cname)) => {
+            RData::CNAME(cname) => {
                 println!(
                     "{} {} {}   \"{}\"",
                     record_type_name.green(),
@@ -96,18 +88,19 @@ fn main() {
                     cname
                 );
             }
-            Some(RData::MX(mx)) => {
+            RData::MX(mx) => {
                 println!(
                     "{} {} {}   {} \"{}\"",
                     record_type_name.green(),
                     name.blue(),
                     ttl,
-                    mx.preference(),
-                    mx.exchange()
+                    mx.preference,
+                    mx.exchange
                 );
             }
-            Some(RData::TXT(txt)) => {
+            RData::TXT(txt) => {
                 let txt_data = txt
+                    .txt_data
                     .iter()
                     .map(|bytes| String::from_utf8_lossy(bytes))
                     .collect::<Vec<_>>()
@@ -120,22 +113,22 @@ fn main() {
                     txt_data
                 );
             }
-            Some(RData::SOA(soa)) => {
+            RData::SOA(soa) => {
                 println!(
                     "{} {} {}   \"{}\" \"{}\" {} {} {} {} {}",
                     record_type_name.purple(),
                     name.blue(),
                     ttl,
-                    soa.mname(),
-                    soa.rname(),
-                    soa.serial(),
-                    soa.refresh(),
-                    soa.retry(),
-                    soa.expire(),
-                    soa.minimum()
+                    soa.mname,
+                    soa.rname,
+                    soa.serial,
+                    soa.refresh,
+                    soa.retry,
+                    soa.expire,
+                    soa.minimum
                 );
             }
-            Some(RData::PTR(ptr)) => {
+            RData::PTR(ptr) => {
                 println!(
                     "{} {} {}   \"{}\"",
                     record_type_name.green(),
@@ -144,7 +137,7 @@ fn main() {
                     ptr
                 );
             }
-            Some(other) => {
+            other => {
                 println!(
                     "{} {} {}   {:?}",
                     record_type_name.red(),
@@ -153,16 +146,38 @@ fn main() {
                     other
                 );
             }
-            None => {
-                println!(
-                    "{} {} {}   (no data)",
-                    record_type_name.green(),
-                    name.blue(),
-                    ttl
-                );
-            }
         }
     }
+
+    Ok(())
+}
+
+fn build_resolver(
+    resolver: ResolverChoice,
+) -> Result<Resolver<TokioRuntimeProvider>, Box<dyn Error>> {
+    let resolver = match resolver {
+        ResolverChoice::System => Resolver::builder_tokio()?.build()?,
+        ResolverChoice::Google => public_resolver(&GOOGLE)?,
+        ResolverChoice::Cloudflare => public_resolver(&CLOUDFLARE)?,
+        ResolverChoice::Quad9 => public_resolver(&QUAD9)?,
+    };
+
+    Ok(resolver)
+}
+
+fn public_resolver(
+    config: &hickory_resolver::config::ServerGroup<'_>,
+) -> Result<Resolver<TokioRuntimeProvider>, Box<dyn Error>> {
+    Ok(Resolver::builder_with_config(
+        ResolverConfig::https(config),
+        TokioRuntimeProvider::default(),
+    )
+    .build()?)
+}
+
+fn parse_record_type(record_type: &str) -> Result<RecordType, String> {
+    RecordType::from_str(record_type)
+        .map_err(|_| format!("invalid DNS record type '{record_type}'"))
 }
 
 fn format_ttl(ttl: u32) -> String {
@@ -179,5 +194,30 @@ fn format_ttl(ttl: u32) -> String {
         format!("{}m{:02}s", minutes, seconds)
     } else {
         format!("{}s", seconds)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_seconds_only_ttl() {
+        assert_eq!(format_ttl(42), "42s");
+    }
+
+    #[test]
+    fn formats_minutes_and_seconds_ttl() {
+        assert_eq!(format_ttl(181), "3m01s");
+    }
+
+    #[test]
+    fn formats_hours_minutes_and_seconds_ttl() {
+        assert_eq!(format_ttl(5445), "1h30m45s");
+    }
+
+    #[test]
+    fn rejects_unknown_record_type() {
+        assert!(parse_record_type("NOPE").is_err());
     }
 }
